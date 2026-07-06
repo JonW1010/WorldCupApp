@@ -85,7 +85,7 @@ final class WorldCupService: ObservableObject {
 
             matches = decoded.matches
                 .filter(\.hasResult)
-                .sorted { $0.sortKey < $1.sortKey }
+                .sorted { $0.date > $1.date }
 
         } catch {
             errorMessage = error.localizedDescription
