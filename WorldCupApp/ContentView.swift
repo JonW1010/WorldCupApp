@@ -4,9 +4,10 @@ import SwiftUI
 
 enum FilterOption: String, CaseIterable {
     case england     = "England"
-    case active      = "Active Teams"
-    case other       = "Other Teams"
-    case goalscorers = "Goalscorers"
+    case active      = "Active"
+    case other       = "Others"
+    case goalscorers = "Scorers"
+    case bracket     = "Bracket"
 }
 
 // MARK: - Content View
@@ -33,6 +34,8 @@ struct ContentView: View {
                 !active.contains($0.team1) && !active.contains($0.team2)
             }
         case .goalscorers:
+            return []
+        case .bracket:
             return []
         }
     }
@@ -63,6 +66,9 @@ struct ContentView: View {
 
                     } else if filter == .goalscorers {
                         goalscorersView
+
+                    } else if filter == .bracket {
+                        BracketView(matches: service.knockoutMatches)
 
                     } else if filteredMatches.isEmpty {
                         ContentUnavailableView(
@@ -495,6 +501,226 @@ struct GoalscorerDetailView: View {
             }
         }
         return nil
+    }
+}
+
+// MARK: - Bracket View
+
+struct BracketView: View {
+    let matches: [Match]
+
+    private let cardW: CGFloat   = 152
+    private let cardH: CGFloat   = 70
+    private let hGap: CGFloat    = 40   // horizontal space between round columns
+    private let baseSlot: CGFloat = 88  // cardH + vertical gap between cards in round 0
+
+    // Knockout matches excluding third-place play-off
+    private var rounds: [(name: String, matches: [Match])] {
+        let main = matches.filter {
+            let r = ($0.round ?? "").lowercased()
+            return !r.contains("third") && !r.contains("3rd") &&
+                   !(r.contains("play") && r.contains("off"))
+        }
+        let grouped = Dictionary(grouping: main) { $0.round ?? "Unknown" }
+        return grouped
+            .sorted { roundOrder($0.key) < roundOrder($1.key) }
+            .map { (name: $0.key, matches: $0.value.sorted { $0.date < $1.date }) }
+    }
+
+    private func roundOrder(_ name: String) -> Int {
+        let r = name.lowercased()
+        if r.contains("round of 32") { return 0 }
+        if r.contains("round of 16") { return 1 }
+        if r.contains("quarter")     { return 2 }
+        if r.contains("semi")        { return 3 }
+        if r.contains("final")       { return 4 }
+        return 9
+    }
+
+    private func shortRoundName(_ name: String) -> String {
+        let r = name.lowercased()
+        if r.contains("32")      { return "Round of 32" }
+        if r.contains("16")      { return "Round of 16" }
+        if r.contains("quarter") { return "Quarterfinals" }
+        if r.contains("semi")    { return "Semifinals" }
+        if r.contains("final")   { return "Final" }
+        return name
+    }
+
+    private var baseCount: Int { rounds.first?.matches.count ?? 1 }
+
+    private var canvasW: CGFloat { CGFloat(rounds.count) * (cardW + hGap) + hGap }
+    private var canvasH: CGFloat { CGFloat(baseCount) * baseSlot + cardH + 28 }
+
+    // X of left edge of round column ri
+    private func xForRound(_ ri: Int) -> CGFloat {
+        CGFloat(ri) * (cardW + hGap) + hGap / 2
+    }
+
+    // Y of top edge of match mi in round ri
+    private func yForMatch(round ri: Int, match mi: Int) -> CGFloat {
+        let mult   = pow(2.0, Double(ri))
+        let offset = (mult - 1.0) / 2.0 * Double(baseSlot)
+        let spacing = mult * Double(baseSlot)
+        return CGFloat(offset + Double(mi) * spacing) + 28   // +28 for header
+    }
+
+    // Pre-compute bracket connector paths
+    private var connectorPaths: [Path] {
+        var paths: [Path] = []
+        for ri in 0..<rounds.count - 1 {
+            let count1 = rounds[ri].matches.count
+            let count2 = rounds[ri + 1].matches.count
+            let x1    = xForRound(ri)
+            let x2    = xForRound(ri + 1)
+            let midX  = x1 + cardW + hGap / 2
+
+            var i = 0, ni = 0
+            while i < count1 {
+                guard ni < count2 else { break }
+
+                let yA = yForMatch(round: ri, match: i) + cardH / 2
+
+                if i + 1 < count1 {
+                    // Pair: two matches → one next match
+                    let yB = yForMatch(round: ri, match: i + 1) + cardH / 2
+                    let yN = yForMatch(round: ri + 1, match: ni) + cardH / 2
+
+                    var p = Path()
+                    // Stub from match A → midX, then vertical bar down to match B level
+                    p.move(to: CGPoint(x: x1 + cardW, y: yA))
+                    p.addLine(to: CGPoint(x: midX, y: yA))
+                    p.addLine(to: CGPoint(x: midX, y: yB))
+                    // Stub from match B → midX (separate subpath so we don't double the vertical)
+                    p.move(to: CGPoint(x: x1 + cardW, y: yB))
+                    p.addLine(to: CGPoint(x: midX, y: yB))
+                    // Connector from centre of vertical → left of next match
+                    p.move(to: CGPoint(x: midX, y: (yA + yB) / 2))
+                    p.addLine(to: CGPoint(x: x2, y: yN))
+                    paths.append(p)
+                    i += 2; ni += 1
+                } else {
+                    // Odd/bye: direct line
+                    let yN = yForMatch(round: ri + 1, match: ni) + cardH / 2
+                    var p = Path()
+                    p.move(to: CGPoint(x: x1 + cardW, y: yA))
+                    p.addLine(to: CGPoint(x: midX, y: yA))
+                    p.addLine(to: CGPoint(x: x2, y: yN))
+                    paths.append(p)
+                    i += 1; ni += 1
+                }
+            }
+        }
+        return paths
+    }
+
+    var body: some View {
+        if rounds.isEmpty {
+            ContentUnavailableView(
+                "Bracket Not Available",
+                systemImage: "soccerball",
+                description: Text("The knockout bracket will appear once the group stage is complete.")
+            )
+        } else {
+            ScrollView([.horizontal, .vertical]) {
+                ZStack(alignment: .topLeading) {
+                    // Connector lines
+                    let paths = connectorPaths
+                    ForEach(paths.indices, id: \.self) { i in
+                        paths[i]
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1.5)
+                    }
+
+                    // Round headers + match cards
+                    ForEach(Array(rounds.enumerated()), id: \.offset) { ri, round in
+                        // Round header
+                        Text(shortRoundName(round.name))
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
+                            .frame(width: cardW, alignment: .center)
+                            .position(x: xForRound(ri) + cardW / 2, y: 14)
+
+                        ForEach(Array(round.matches.enumerated()), id: \.element.id) { mi, match in
+                            BracketCard(match: match)
+                                .frame(width: cardW, height: cardH)
+                                .position(
+                                    x: xForRound(ri) + cardW / 2,
+                                    y: yForMatch(round: ri, match: mi) + cardH / 2
+                                )
+                        }
+                    }
+                }
+                .frame(width: canvasW, height: canvasH)
+            }
+        }
+    }
+}
+
+// MARK: - Bracket Card
+
+struct BracketCard: View {
+    let match: Match
+
+    private var team1Won: Bool {
+        guard let s1 = match.score1, let s2 = match.score2 else { return false }
+        if s1 != s2 { return s1 > s2 }
+        if let p = match.score?.p, p.count == 2 { return p[0] > p[1] }
+        return false
+    }
+
+    private var team2Won: Bool {
+        guard let s1 = match.score1, let s2 = match.score2 else { return false }
+        if s1 != s2 { return s2 > s1 }
+        if let p = match.score?.p, p.count == 2 { return p[1] > p[0] }
+        return false
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            teamRow(name: match.team1, score: match.score1, isWinner: team1Won)
+            Divider()
+            teamRow(name: match.team2, score: match.score2, isWinner: team2Won)
+            Divider()
+            Text(shortDate(match.date))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 3)
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator, lineWidth: 0.5))
+    }
+
+    @ViewBuilder
+    private func teamRow(name: String, score: Int?, isWinner: Bool) -> some View {
+        let hasResult = match.score1 != nil
+        HStack(spacing: 6) {
+            Text(name.isEmpty ? "TBD" : name)
+                .font(.caption.bold())
+                .foregroundStyle(
+                    isWinner ? .primary :
+                    hasResult ? Color.primary.opacity(0.5) : .primary
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let s = score {
+                Text("\(s)")
+                    .font(.caption.monospacedDigit().bold())
+                    .foregroundStyle(isWinner ? .primary : Color.primary.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 25)
+        .background(isWinner ? Color.green.opacity(0.12) : Color.clear)
+    }
+
+    private func shortDate(_ raw: String) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let d = f.date(from: raw) else { return raw }
+        f.dateFormat = "d MMM"
+        return f.string(from: d)
     }
 }
 

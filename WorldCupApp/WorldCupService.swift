@@ -7,6 +7,7 @@ final class WorldCupService: ObservableObject {
     )!
 
     @Published var matches: [Match] = []
+    @Published var allMatches: [Match] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -42,6 +43,11 @@ final class WorldCupService: ObservableObject {
             }
             .prefix(25)
             .map { $0 }
+    }
+
+    /// All knockout-stage matches including unplayed ones.
+    var knockoutMatches: [Match] {
+        allMatches.filter { $0.isKnockoutRound }
     }
 
     /// Teams that have not yet been eliminated from a knockout-stage match.
@@ -83,6 +89,7 @@ final class WorldCupService: ObservableObject {
 
             let decoded = try JSONDecoder().decode(WorldCupResponse.self, from: data)
 
+            allMatches = decoded.matches.sorted { $0.date < $1.date }
             matches = decoded.matches
                 .filter(\.hasResult)
                 .sorted { $0.date > $1.date }
