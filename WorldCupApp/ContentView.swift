@@ -20,14 +20,16 @@ struct ContentView: View {
         let active = service.activeTeams
         switch filter {
         case .england:
-            return service.matches.filter {
-                $0.team1 == "England" || $0.team2 == "England"
-            }
+            return service.allMatches
+                .filter { $0.team1 == "England" || $0.team2 == "England" }
+                .sorted { $0.date > $1.date }
         case .active:
-            return service.matches.filter {
-                $0.team1 != "England" && $0.team2 != "England" &&
-                (active.contains($0.team1) || active.contains($0.team2))
-            }
+            return service.allMatches
+                .filter {
+                    $0.team1 != "England" && $0.team2 != "England" &&
+                    (active.contains($0.team1) || active.contains($0.team2))
+                }
+                .sorted { $0.date > $1.date }
         case .other:
             return service.matches.filter {
                 $0.team1 != "England" && $0.team2 != "England" &&
@@ -213,7 +215,7 @@ struct MatchRow: View {
     @ViewBuilder
     private func teamLabel(_ name: String, score: Int?) -> some View {
         HStack {
-            Text(name)
+            Text("\(countryFlag(name)) \(name)")
                 .font(.headline)
             Spacer()
             if let score {
@@ -246,14 +248,14 @@ struct MatchDetailView: View {
                 // Score header
                 VStack(spacing: 8) {
                     HStack {
-                        Text(match.team1)
+                        Text("\(countryFlag(match.team1)) \(match.team1)")
                             .font(.title2.bold())
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
                         Text(match.scoreDisplay)
                             .font(.title.bold().monospacedDigit())
                             .foregroundStyle(.primary)
-                        Text(match.team2)
+                        Text("\(countryFlag(match.team2)) \(match.team2)")
                             .font(.title2.bold())
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
@@ -289,7 +291,7 @@ struct MatchDetailView: View {
     @ViewBuilder
     private func goalColumn(goals: [Goal], label: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(label)
+            Text("\(countryFlag(label)) \(label)")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
@@ -368,7 +370,7 @@ struct GoalscorerRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(scorer.name)
                     .font(.headline)
-                Text(scorer.country)
+                Text("\(countryFlag(scorer.country)) \(scorer.country)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -429,7 +431,7 @@ struct GoalscorerDetailView: View {
                 VStack(spacing: 6) {
                     Text(scorer.name)
                         .font(.title2.bold())
-                    Label(scorer.country, systemImage: "flag.fill")
+                    Text("\(countryFlag(scorer.country)) \(scorer.country)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text("\(scorer.goals) goal\(scorer.goals == 1 ? "" : "s") in tournament")
@@ -695,7 +697,7 @@ struct BracketCard: View {
     private func teamRow(name: String, score: Int?, isWinner: Bool) -> some View {
         let hasResult = match.score1 != nil
         HStack(spacing: 6) {
-            Text(name.isEmpty ? "TBD" : name)
+            Text(name.isEmpty ? "TBD" : "\(countryFlag(name)) \(name)")
                 .font(.caption.bold())
                 .foregroundStyle(
                     isWinner ? .primary :
