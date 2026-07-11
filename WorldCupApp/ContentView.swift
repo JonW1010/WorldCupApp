@@ -516,7 +516,8 @@ struct BracketView: View {
     private let hGap: CGFloat    = 40   // horizontal space between round columns
     private let baseSlot: CGFloat = 88  // cardH + vertical gap between cards in round 0
 
-    // Knockout matches excluding third-place play-off
+    // Knockout matches excluding third-place play-off, reordered so each pair
+    // of earlier-round matches aligns with the later-round match they feed into.
     private var rounds: [(name: String, matches: [Match])] {
         let main = matches.filter {
             let r = ($0.round ?? "").lowercased()
@@ -524,9 +525,59 @@ struct BracketView: View {
                    !(r.contains("play") && r.contains("off"))
         }
         let grouped = Dictionary(grouping: main) { $0.round ?? "Unknown" }
-        return grouped
+        let initial = grouped
             .sorted { roundOrder($0.key) < roundOrder($1.key) }
             .map { (name: $0.key, matches: $0.value.sorted { $0.date < $1.date }) }
+        return reorderByBracketTree(initial)
+    }
+
+    /// Reorders each round so that pairs of matches correctly align with the
+    /// match in the next round that their winners play in.
+    /// Works by cascading backwards from the Final: the Final determines SF order,
+    /// SF determines QF order, QF determines R16 order, R16 determines R32 order.
+    private func reorderByBracketTree(
+        _ rounds: [(name: String, matches: [Match])]
+    ) -> [(name: String, matches: [Match])] {
+        guard rounds.count >= 2 else { return rounds }
+        var result = rounds
+
+        for ri in stride(from: result.count - 1, through: 1, by: -1) {
+            // Build winner → match map for the round we're about to reorder (ri-1)
+            var wonBy: [String: Match] = [:]
+            for match in result[ri - 1].matches {
+                if let w = bracketWinner(match) {
+                    wonBy[w] = match
+                }
+            }
+
+            // Place ri-1 matches in the order dictated by ri matches
+            var placed: [Match] = []
+            var usedIDs = Set<String>()
+            for laterMatch in result[ri].matches {
+                for team in [laterMatch.team1, laterMatch.team2] {
+                    if let m = wonBy[team], !usedIDs.contains(m.id) {
+                        placed.append(m)
+                        usedIDs.insert(m.id)
+                    }
+                }
+            }
+            // Append any matches not yet traceable (later rounds not yet played)
+            for m in result[ri - 1].matches where !usedIDs.contains(m.id) {
+                placed.append(m)
+            }
+
+            result[ri - 1] = (name: result[ri - 1].name, matches: placed)
+        }
+
+        return result
+    }
+
+    private func bracketWinner(_ match: Match) -> String? {
+        guard let s1 = match.score1, let s2 = match.score2 else { return nil }
+        if s1 > s2 { return match.team1 }
+        if s2 > s1 { return match.team2 }
+        if let p = match.score?.p, p.count == 2 { return p[0] > p[1] ? match.team1 : match.team2 }
+        return nil
     }
 
     private func roundOrder(_ name: String) -> Int {
