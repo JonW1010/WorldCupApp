@@ -626,6 +626,14 @@ struct BracketView: View {
         } else {
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
+                    // Background wallpaper
+                    Image("BracketBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: canvasW, height: canvasH)
+                        .clipped()
+                        .allowsHitTesting(false)
+
                     // Connector lines
                     let paths = connectorPaths
                     ForEach(paths.indices, id: \.self) { i in
